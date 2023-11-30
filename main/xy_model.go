@@ -24,6 +24,16 @@ func newModel() *Model {
 	return m
 }
 
+func newParameterModel(size int, coupling float64, muB float64, temperature float64, magField float64) *Model {
+	var m = new(Model)
+	m.size = size
+	m.coupling = coupling
+	m.muB = muB
+	m.temperature = temperature
+	m.magField = magField
+	return m
+}
+
 func (m *Model) setValues() {
 	var valCount = 0
 	var err error = nil
@@ -97,7 +107,7 @@ func (m *Model) energy() [][]float64 {
 /* This cannot be correct ngl */
 func (m *Model) deltaEnergy(newAngles [][]float64) [][]float64 {
 	res := CreateMatrix[float64](m.size)
-	rows, cols := len(m.lattice), len(m.lattice[0])
+	rows, cols := len(m.lattice), len(m.lattice)
 
 	OperateOnCellsWithIndex(&res, func(cell *float64, i int, j int) {
 		*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i+1)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i+1)%rows][j]))
@@ -129,7 +139,7 @@ func (m *Model) transitionProbability(newAngles [][]float64) [][]float64 {
 	return res
 }
 
-func (m *Model) evolve(therm int, fraction float64, meas int, drop int) {
+func (m *Model) evolve(therm int, fraction float64, meas int, drop int) (float64, float64, float64) {
 	var age = 0
 	var iMeas = 0
 	var newAngles = CreateMatrix[float64](m.size)
@@ -140,6 +150,7 @@ func (m *Model) evolve(therm int, fraction float64, meas int, drop int) {
 	var magPerSite float64 = 0
 	var mag float64 = 0
 	var mag2 float64 = 0
+
 	for i := 0; i < therm+meas; i++ {
 		OperateOnEachCell(&newAngles, func(f *float64) {
 			*f = rand.NormFloat64()
@@ -187,10 +198,41 @@ func (m *Model) evolve(therm int, fraction float64, meas int, drop int) {
 	specificHeat := 1 / (math.Pow(float64(m.size), 2) * math.Pow(m.temperature, 2)) * SumWholeArray(energeticVariance)
 	magSusPerSite := 1 / (math.Pow(float64(m.size), 2) * m.temperature) * magneticVariance
 
-	println(specificHeat, magSusPerSite)
+	return specificHeat, magPerSite, magSusPerSite
+}
+
+func simulate(m *Model, id int, nTherm int, fraction float64, nMeas int, nDrop int, c [][]chan float64) {
+	m.randomize()
+	var results [3]float64
+	results[0], results[1], results[2] = m.evolve(nTherm, fraction, nMeas, nDrop)
+	c[id][0] <- results[0]
+	c[id][1] <- results[1]
+	c[id][2] <- results[2]
 }
 func xyModel() {
-	h := newModel()
-	h.randomize()
-	h.printLattice()
+	nRealizations := 200
+	nTherm := 2000
+	nMeasure := 2000
+	nDrop := 5
+	tMin := 0.01
+	tMax := 2.
+	results := make([][]chan float64, nRealizations)
+	for i := range results {
+		results[i] = make([]chan float64, 3)
+	}
+	tVals := make([]float64, nRealizations)
+	for i := range tVals {
+		tVals[i] = rand.Float64() * ((tMax - tMin) + tMin)
+	}
+	for i := 0; i < nRealizations; i++ {
+		go simulate(&Model{
+			size:        50,
+			coupling:    1,
+			muB:         0.67,
+			temperature: tVals[i],
+			magField:    0,
+		}, i, nTherm, 0.1, nMeasure, nDrop, results)
+	}
+
+	//Plot here
 }
