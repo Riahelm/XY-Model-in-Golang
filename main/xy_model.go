@@ -22,12 +22,6 @@ type Model struct {
 	lattice     [][]float64
 }
 
-func newModel() *Model {
-	var m = new(Model)
-	m.setValues()
-	return m
-}
-
 func newParameterModel(size int, coupling float64, muB float64, temperature float64, magField float64) *Model {
 	var m = new(Model)
 	m.size = size
@@ -36,6 +30,12 @@ func newParameterModel(size int, coupling float64, muB float64, temperature floa
 	m.temperature = temperature
 	m.magField = magField
 	m.lattice = CreateMatrix[float64](size)
+	return m
+}
+
+func newModel() *Model {
+	var m = new(Model)
+	m.setValues()
 	return m
 }
 
@@ -56,12 +56,7 @@ func (m *Model) setValues() {
 			panic("Error handling the input")
 		}
 	}
-
-	m.lattice = make([][]float64, m.size)
-	for i := range m.lattice {
-		m.lattice[i] = make([]float64, m.size)
-	}
-	println(m.size)
+	m.lattice = CreateMatrix[float64](m.size)
 }
 
 func (m *Model) printValues() {
@@ -70,9 +65,7 @@ func (m *Model) printValues() {
 	println("muB: ", m.muB)
 	println("Temperature: ", m.temperature)
 	println("MagField: ", m.magField)
-	OperateOnEachCell(&m.lattice, func(f *float64) {
-		print(f)
-	})
+	m.printLattice()
 }
 
 func (m *Model) printLattice() {
@@ -86,7 +79,7 @@ func (m *Model) printLattice() {
 
 func (m *Model) assign(value float64) error {
 	var err error
-	if 0 < value && value < math.Pi*2 {
+	if value < -math.Pi*2 || math.Pi*2 < value {
 		err = errors.New("given value is out of bounds")
 	}
 	OperateOnEachCell[float64](&m.lattice, func(f *float64) {
@@ -116,15 +109,37 @@ func (m *Model) energy() float64 {
 /* This cannot be correct ngl */
 func (m *Model) deltaEnergy(newAngles [][]float64) [][]float64 {
 	res := CreateMatrix[float64](m.size)
-	rows, cols := len(m.lattice), len(m.lattice[0])
 
-	OperateOnCellsWithIndex(&res, func(cell *float64, i int, j int) {
-		*cell = -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i+1)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i+1)%rows][j]))
-		*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[i][(j+1)%cols]) - math.Cos(m.lattice[i][j]-m.lattice[i][(j+1)%cols]))
-		*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i-1+rows)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i-1+rows)%rows][j]))
-		*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[i][(j-1+cols)%cols]) - math.Cos(m.lattice[i][j]-m.lattice[i][(j-1+cols)%cols]))
-		*cell += -m.muB * m.magField * (math.Cos(newAngles[i][j]) - math.Cos(m.lattice[i][j]))
+	cosNewAngles := OperateOnEachCellWithReturn(newAngles, func(cell float64) {
+		cell = math.Cos(cell)
 	})
+	cosLattice := OperateOnEachCellWithReturn(m.lattice, func(cell float64) {
+		cell = math.Cos(cell)
+	})
+
+	diff1 := SubtractMatrices(cosNewAngles, Roll(cosLattice, 1, 0))
+	diff2 := SubtractMatrices(cosNewAngles, Roll(cosLattice, 1, 1))
+	diff3 := SubtractMatrices(cosNewAngles, Roll(cosLattice, -1, 0))
+	diff4 := SubtractMatrices(cosNewAngles, Roll(cosLattice, -1, 1))
+
+	MultiplyPMatrixByScalar(diff1, m.coupling)
+	MultiplyPMatrixByScalar(diff2, m.coupling)
+	MultiplyPMatrixByScalar(diff3, m.coupling)
+	MultiplyPMatrixByScalar(diff4, m.coupling)
+
+	AddPMatrices(&res, *diff1)
+	AddPMatrices(&res, *diff2)
+	AddPMatrices(&res, *diff3)
+	AddPMatrices(&res, *diff4)
+
+	/*
+		OperateOnCellsWithIndex(&res, func(cell *float64, i int, j int) {
+			*cell = -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i+1)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i+1)%rows][j]))
+			*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[i][(j+1)%cols]) - math.Cos(m.lattice[i][j]-m.lattice[i][(j+1)%cols]))
+			*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i-1+rows)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i-1+rows)%rows][j]))
+			*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[i][(j-1+cols)%cols]) - math.Cos(m.lattice[i][j]-m.lattice[i][(j-1+cols)%cols]))
+			*cell += -m.muB * m.magField * (math.Cos(newAngles[i][j]) - math.Cos(m.lattice[i][j]))
+		})*/
 	return res
 }
 
@@ -160,9 +175,9 @@ func (m *Model) evolve(therm int, fraction float64, meas int, drop int) (float64
 	var mag2 float64 = 0
 
 	for i := 0; i < therm+meas; i++ {
-		OperateOnEachCell(&newAngles, func(f *float64) {
-			*f = rand.Float64()
-			*f *= 2 * math.Pi
+		OperateOnCellsWithIndex(&newAngles, func(cell *float64, i int, j int) {
+			*cell = rand.NormFloat64() + m.lattice[i][j]
+			*cell = math.Mod(newAngles[i][j], 2*math.Pi)
 		})
 
 		prob = m.transitionProbability(newAngles)
@@ -230,7 +245,7 @@ func xyModel() {
 	slices.Sort(tVals)
 	for i := 0; i < nRealizations; i++ {
 		wg.Add(1)
-		go simulate(newParameterModel(50, 1, 0.67, tVals[i], 0), nTherm, 0.1, nMeasure, nDrop, &results[i], &wg)
+		go simulate(newParameterModel(30, 1, 0.67, tVals[i], 0), nTherm, 0.1, nMeasure, nDrop, &results[i], &wg)
 	}
 
 	wg.Wait()
@@ -246,7 +261,7 @@ func plotData(plotName string, temps []float64, results []float64) {
 	newPlot.X.Label.Text = "Temperature"
 	newPlot.Y.Label.Text = plotName
 
-	data := make(plotter.XYs, len(results))
+	data := make(plotter.XYs, len(temps))
 	for i := range data {
 		data[i].X = temps[i]
 		data[i].Y = results[i]

@@ -156,9 +156,10 @@ func SumMatrix[F float64 | float32](matrix [][]F) F {
 
 func Roll[F float64 | float32](slice [][]F, shiftX int, shiftY int) [][]F {
 	length := len(slice)
+	x, y := (shiftX%length)+length, (shiftY%length)+length
 	res := CreateMatrix[F](length)
 	OperateOnCellsWithIndex(&res, func(cell *F, i int, j int) {
-		res[i][j] = slice[i+shiftX%length][j+shiftY%length]
+		res[i][j] = slice[(i+x)%length][(j+y)%length]
 	})
 	return res
 }
