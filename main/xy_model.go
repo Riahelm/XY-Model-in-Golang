@@ -4,9 +4,13 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/plotter"
 	"math"
 	"math/rand"
 	"os"
+	"slices"
+	"sync"
 )
 
 type Model struct {
@@ -31,6 +35,7 @@ func newParameterModel(size int, coupling float64, muB float64, temperature floa
 	m.muB = muB
 	m.temperature = temperature
 	m.magField = magField
+	m.lattice = CreateMatrix[float64](size)
 	return m
 }
 
@@ -96,21 +101,25 @@ func (m *Model) randomize() {
 	})
 }
 
-func (m *Model) energy() [][]float64 {
+func (m *Model) energy() float64 {
 	var res = CreateMatrix[float64](m.size)
-	OperateOnCellsWithIndex[float64](&res, func(cell *float64, i int, j int) {
-		*cell = -m.coupling*(math.Cos(m.lattice[i][j]-m.lattice[i][(j+1)%m.size])) + math.Cos(m.lattice[i][j]-m.lattice[(i+1)%m.size][j]) - m.muB*m.magField*math.Cos(m.lattice[i][j])
+	OperateOnCellsWithIndex(&res, func(cell *float64, i int, j int) {
+		neighbour := math.Cos(m.lattice[i][j]-m.lattice[i][(j+1)%m.size]) + math.Cos(m.lattice[i][j]-m.lattice[(i+1)%m.size][j])
+		res[i][j] = -m.coupling * neighbour
 	})
-	return res
+	SubtractPMatrixByScalar(&res, m.muB*m.magField*SumMatrix(OperateOnEachCellWithReturn(m.lattice, func(cell float64) {
+		math.Cos(cell)
+	})))
+	return SumMatrix(res)
 }
 
 /* This cannot be correct ngl */
 func (m *Model) deltaEnergy(newAngles [][]float64) [][]float64 {
 	res := CreateMatrix[float64](m.size)
-	rows, cols := len(m.lattice), len(m.lattice)
+	rows, cols := len(m.lattice), len(m.lattice[0])
 
 	OperateOnCellsWithIndex(&res, func(cell *float64, i int, j int) {
-		*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i+1)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i+1)%rows][j]))
+		*cell = -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i+1)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i+1)%rows][j]))
 		*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[i][(j+1)%cols]) - math.Cos(m.lattice[i][j]-m.lattice[i][(j+1)%cols]))
 		*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i-1+rows)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i-1+rows)%rows][j]))
 		*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[i][(j-1+cols)%cols]) - math.Cos(m.lattice[i][j]-m.lattice[i][(j-1+cols)%cols]))
@@ -144,39 +153,36 @@ func (m *Model) evolve(therm int, fraction float64, meas int, drop int) (float64
 	var iMeas = 0
 	var newAngles = CreateMatrix[float64](m.size)
 	var prob = CreateMatrix[float64](m.size)
-	var trans = CreateMatrix[float64](m.size)
-	var en = CreateMatrix[float64](m.size)
-	var en2 = CreateMatrix[float64](m.size)
+	var en = 0.
+	var en2 = 0.
 	var magPerSite float64 = 0
 	var mag float64 = 0
 	var mag2 float64 = 0
 
 	for i := 0; i < therm+meas; i++ {
 		OperateOnEachCell(&newAngles, func(f *float64) {
-			*f = rand.NormFloat64()
+			*f = rand.Float64()
 			*f *= 2 * math.Pi
 		})
 
 		prob = m.transitionProbability(newAngles)
 
-		OperateOnCellsWithIndex(&trans, func(cell *float64, i int, j int) {
-			transition := rand.Float64() < prob[i][j] && rand.Float64() < fraction
-			if transition {
-				m.lattice[i][j] = newAngles[i][j]
+		OperateOnCellsWithIndex(&m.lattice, func(cell *float64, i int, j int) {
+			if rand.Float64() < prob[i][j] && rand.Float64() < fraction {
+				*cell = newAngles[i][j]
 			}
 		})
 
 		age++
 
 		if i > therm && i%drop == 0 {
-			tmpE := CreateMatrix[float64](m.size)
+			var tmpE = 0.
 			var tmpM float64
 			tmpE = m.energy()
 			tmpM = m.magnetization()
 
-			AddPMatrices(&en, tmpE)
-			MultiplyPMatrices(&tmpE, tmpE)
-			AddPMatrices(&en2, tmpE)
+			en += tmpE
+			en2 += tmpE * tmpE
 			magPerSite += tmpM / math.Pow(float64(m.size), 2)
 			mag += tmpM
 			mag2 += math.Pow(tmpM, 2)
@@ -184,55 +190,78 @@ func (m *Model) evolve(therm int, fraction float64, meas int, drop int) (float64
 		}
 	}
 
-	DividePMatrixByScalar(&en, float64(iMeas))
-	DividePMatrixByScalar(&en2, float64(iMeas))
+	en /= float64(iMeas)
+	en2 /= float64(iMeas)
 	magPerSite /= float64(iMeas)
 	mag /= float64(iMeas)
 	mag2 /= float64(iMeas)
 
-	energeticVariance := CreateMatrix[float64](m.size)
-	energeticVariance = *SubtractMatrices(en2, *MultiplyMatrices(en, en))
-
+	energeticVariance := en2 - en*en
 	magneticVariance := mag2 - mag*mag
 
-	specificHeat := 1 / (math.Pow(float64(m.size), 2) * math.Pow(m.temperature, 2)) * SumWholeArray(energeticVariance)
-	magSusPerSite := 1 / (math.Pow(float64(m.size), 2) * m.temperature) * magneticVariance
+	specificHeat := (1 / (math.Pow(float64(m.size), 2) * math.Pow(m.temperature, 2))) * energeticVariance
+	magSusPerSite := (1 / (math.Pow(float64(m.size), 2) * m.temperature)) * magneticVariance
 
 	return specificHeat, magPerSite, magSusPerSite
 }
 
-func simulate(m *Model, id int, nTherm int, fraction float64, nMeas int, nDrop int, c [][]chan float64) {
+func simulate(m *Model, nTherm int, fraction float64, nMeas int, nDrop int, data *[]float64, group *sync.WaitGroup) {
+	defer group.Done()
 	m.randomize()
-	var results [3]float64
-	results[0], results[1], results[2] = m.evolve(nTherm, fraction, nMeas, nDrop)
-	c[id][0] <- results[0]
-	c[id][1] <- results[1]
-	c[id][2] <- results[2]
+	(*data)[0], (*data)[1], (*data)[2] = m.evolve(nTherm, fraction, nMeas, nDrop)
 }
+
 func xyModel() {
-	nRealizations := 200
+	nRealizations := 100
 	nTherm := 2000
 	nMeasure := 2000
 	nDrop := 5
 	tMin := 0.01
 	tMax := 2.
-	results := make([][]chan float64, nRealizations)
+	var wg sync.WaitGroup
+	results := make([][]float64, nRealizations)
 	for i := range results {
-		results[i] = make([]chan float64, 3)
+		results[i] = make([]float64, 3)
 	}
 	tVals := make([]float64, nRealizations)
 	for i := range tVals {
 		tVals[i] = rand.Float64() * ((tMax - tMin) + tMin)
 	}
+	slices.Sort(tVals)
 	for i := 0; i < nRealizations; i++ {
-		go simulate(&Model{
-			size:        50,
-			coupling:    1,
-			muB:         0.67,
-			temperature: tVals[i],
-			magField:    0,
-		}, i, nTherm, 0.1, nMeasure, nDrop, results)
+		wg.Add(1)
+		go simulate(newParameterModel(50, 1, 0.67, tVals[i], 0), nTherm, 0.1, nMeasure, nDrop, &results[i], &wg)
 	}
 
-	//Plot here
+	wg.Wait()
+
+	plotData("Heat Plot", tVals, extractColumn(results, 0))
+	plotData("Mag Plot", tVals, extractColumn(results, 1))
+	plotData("Mag Sus Plot", tVals, extractColumn(results, 2))
+}
+
+func plotData(plotName string, temps []float64, results []float64) {
+	newPlot := plot.New()
+	newPlot.Title.Text = plotName
+	newPlot.X.Label.Text = "Temperature"
+	newPlot.Y.Label.Text = plotName
+
+	data := make(plotter.XYs, len(results))
+	for i := range data {
+		data[i].X = temps[i]
+		data[i].Y = results[i]
+	}
+
+	s, _ := plotter.NewScatter(data)
+
+	newPlot.Add(s)
+	newPlot.Save(1920, 1080, plotName+".png")
+}
+
+func extractColumn[F float64 | float32](matrix [][]F, index int) []F {
+	res := make([]F, len(matrix))
+	for i, fs := range matrix {
+		res[i] = fs[index]
+	}
+	return res
 }

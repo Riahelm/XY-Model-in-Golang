@@ -7,7 +7,14 @@ func CreateMatrix[F float64 | float32](size int) [][]F {
 	}
 	return res
 }
-
+func OperateOnEachCellWithReturn[F float64 | float32](matrix [][]F, doOperation func(cell F)) [][]F {
+	for _, fs := range matrix {
+		for i := range fs {
+			doOperation(fs[i])
+		}
+	}
+	return matrix
+}
 func OperateOnEachCell[F float64 | float32](matrix *[][]F, doOperation func(cell *F)) {
 	for _, fs := range *matrix {
 		for i := range fs {
@@ -49,6 +56,20 @@ func AddMatrices[F float64 | float32](matrix [][]F, matrix2 [][]F) *[][]F {
 func AddPMatrices[F float64 | float32](matrix *[][]F, matrix2 [][]F) {
 	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell += matrix2[i][j]
+	})
+}
+
+func SubtractMatrixByScalar[F float64 | float32](matrix [][]F, scalar F) *[][]F {
+	res := CreateMatrix[F](len(matrix))
+	OperateOnCellsWithIndex[F](&res, func(cell *F, i int, j int) {
+		*cell -= scalar
+	})
+	return &res
+}
+
+func SubtractPMatrixByScalar[F float64 | float32](matrix *[][]F, scalar F) {
+	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
+		*cell -= scalar
 	})
 }
 
@@ -122,10 +143,22 @@ func DividePMatrices[F float64 | float32](matrix *[][]F, matrix2 [][]F) {
 	})
 }
 
-func SumWholeArray[F float64 | float32](matrix [][]F) F {
+func SumMatrix[F float64 | float32](matrix [][]F) F {
 	var res F
-	OperateOnEachCell(&matrix, func(f *F) {
+	OperateOnCellsWithIndex(&matrix, func(cell *F, i int, j int) {
+		res += *cell
+	})
+	/*OperateOnEachCell(&matrix, func(f *F) {
 		res += *f
+	})*/
+	return res
+}
+
+func Roll[F float64 | float32](slice [][]F, shiftX int, shiftY int) [][]F {
+	length := len(slice)
+	res := CreateMatrix[F](length)
+	OperateOnCellsWithIndex(&res, func(cell *F, i int, j int) {
+		res[i][j] = slice[i+shiftX%length][j+shiftY%length]
 	})
 	return res
 }
