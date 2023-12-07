@@ -100,8 +100,8 @@ func (m *Model) energy() float64 {
 		neighbour := math.Cos(m.lattice[i][j]-m.lattice[i][(j+1)%m.size]) + math.Cos(m.lattice[i][j]-m.lattice[(i+1)%m.size][j])
 		res[i][j] = -m.coupling * neighbour
 	})
-	SubtractPMatrixByScalar(&res, m.muB*m.magField*SumMatrix(OperateOnEachCellWithReturn(m.lattice, func(cell float64) {
-		math.Cos(cell)
+	SubtractPMatrixByScalar(&res, m.muB*m.magField*SumMatrix(OperateOnEachCellWithCopy(m.lattice, func(cell *float64) {
+		*cell = math.Cos(*cell)
 	})))
 	return SumMatrix(res)
 }
@@ -110,36 +110,43 @@ func (m *Model) energy() float64 {
 func (m *Model) deltaEnergy(newAngles [][]float64) [][]float64 {
 	res := CreateMatrix[float64](m.size)
 
-	cosNewAngles := OperateOnEachCellWithReturn(newAngles, func(cell float64) {
-		cell = math.Cos(cell)
+	diff1 := SubtractMatrices(
+		OperateOnEachCellWithCopy(SubtractMatrices(newAngles, Roll(m.lattice, 1, 0)), func(cell *float64) {
+			*cell = math.Cos(*cell)
+		}), OperateOnEachCellWithCopy(SubtractMatrices(m.lattice, Roll(m.lattice, 1, 0)), func(cell *float64) {
+			*cell = math.Cos(*cell)
+		}))
+	diff2 := SubtractMatrices(
+		OperateOnEachCellWithCopy(SubtractMatrices(newAngles, Roll(m.lattice, 1, 1)), func(cell *float64) {
+			*cell = math.Cos(*cell)
+		}), OperateOnEachCellWithCopy(SubtractMatrices(m.lattice, Roll(m.lattice, 1, 1)), func(cell *float64) {
+			*cell = math.Cos(*cell)
+		}))
+	diff3 := SubtractMatrices(
+		OperateOnEachCellWithCopy(SubtractMatrices(newAngles, Roll(m.lattice, -1, 0)), func(cell *float64) {
+			*cell = math.Cos(*cell)
+		}), OperateOnEachCellWithCopy(SubtractMatrices(m.lattice, Roll(m.lattice, -1, 0)), func(cell *float64) {
+			*cell = math.Cos(*cell)
+		}))
+	diff4 := SubtractMatrices(
+		OperateOnEachCellWithCopy(SubtractMatrices(newAngles, Roll(m.lattice, -1, 1)), func(cell *float64) {
+			*cell = math.Cos(*cell)
+		}), OperateOnEachCellWithCopy(SubtractMatrices(m.lattice, Roll(m.lattice, -1, 1)), func(cell *float64) {
+			*cell = math.Cos(*cell)
+		}))
+
+	MultiplyPMatrixByScalar(&diff1, -m.coupling)
+	MultiplyPMatrixByScalar(&diff2, -m.coupling)
+	MultiplyPMatrixByScalar(&diff3, -m.coupling)
+	MultiplyPMatrixByScalar(&diff4, -m.coupling)
+
+	res = CopyMatrix(diff1)
+	AddPMatrices(&res, diff2)
+	AddPMatrices(&res, diff3)
+	AddPMatrices(&res, diff4)
+	OperateOnCellsWithIndex(&res, func(cell *float64, i int, j int) {
+		*cell += -m.coupling*m.magField*math.Cos(newAngles[i][j]) - math.Cos(m.lattice[i][j])
 	})
-	cosLattice := OperateOnEachCellWithReturn(m.lattice, func(cell float64) {
-		cell = math.Cos(cell)
-	})
-
-	diff1 := SubtractMatrices(cosNewAngles, Roll(cosLattice, 1, 0))
-	diff2 := SubtractMatrices(cosNewAngles, Roll(cosLattice, 1, 1))
-	diff3 := SubtractMatrices(cosNewAngles, Roll(cosLattice, -1, 0))
-	diff4 := SubtractMatrices(cosNewAngles, Roll(cosLattice, -1, 1))
-
-	MultiplyPMatrixByScalar(diff1, m.coupling)
-	MultiplyPMatrixByScalar(diff2, m.coupling)
-	MultiplyPMatrixByScalar(diff3, m.coupling)
-	MultiplyPMatrixByScalar(diff4, m.coupling)
-
-	AddPMatrices(&res, *diff1)
-	AddPMatrices(&res, *diff2)
-	AddPMatrices(&res, *diff3)
-	AddPMatrices(&res, *diff4)
-
-	/*
-		OperateOnCellsWithIndex(&res, func(cell *float64, i int, j int) {
-			*cell = -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i+1)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i+1)%rows][j]))
-			*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[i][(j+1)%cols]) - math.Cos(m.lattice[i][j]-m.lattice[i][(j+1)%cols]))
-			*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[(i-1+rows)%rows][j]) - math.Cos(m.lattice[i][j]-m.lattice[(i-1+rows)%rows][j]))
-			*cell += -m.coupling * (math.Cos(newAngles[i][j]-m.lattice[i][(j-1+cols)%cols]) - math.Cos(m.lattice[i][j]-m.lattice[i][(j-1+cols)%cols]))
-			*cell += -m.muB * m.magField * (math.Cos(newAngles[i][j]) - math.Cos(m.lattice[i][j]))
-		})*/
 	return res
 }
 
@@ -273,7 +280,7 @@ func plotData(plotName string, temps []float64, results []float64) {
 	newPlot.Save(1920, 1080, plotName+".png")
 }
 
-func extractColumn[F float64 | float32](matrix [][]F, index int) []F {
+func extractColumn[F any](matrix [][]F, index int) []F {
 	res := make([]F, len(matrix))
 	for i, fs := range matrix {
 		res[i] = fs[index]
