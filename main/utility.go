@@ -1,12 +1,15 @@
 package main
 
-import "golang.org/x/exp/constraints"
+import (
+	"fmt"
+	"golang.org/x/exp/constraints"
+)
 
 type AcceptedVals interface {
-	constraints.Integer | constraints.Float | constraints.Complex
+	constraints.Integer | constraints.Float
 }
 
-func CreateMatrix[F any](size int) [][]F {
+func CreateMat[F any](size int) [][]F {
 	var res = make([][]F, size)
 	for side := range res {
 		res[side] = make([]F, size)
@@ -14,32 +17,34 @@ func CreateMatrix[F any](size int) [][]F {
 	return res
 }
 
-func CopyMatrix[F any](m [][]F) [][]F {
-	res := CreateMatrix[F](len(m))
-	OperateOnCellsWithIndex(&res, func(cell *F, i int, j int) {
+func CopyMat[F any](m [][]F) [][]F {
+	res := CreateMat[F](len(m))
+	OpOnElemsWithIndex(&res, func(cell *F, i int, j int) {
 		*cell = m[i][j]
 	})
 	return res
 }
 
-func Roll[F any](slice [][]F, shiftX int, shiftY int) [][]F {
+func RollMat[F any](slice [][]F, shiftX int, shiftY int) [][]F {
 	length := len(slice)
 	x, y := (shiftX%length)+length, (shiftY%length)+length
-	res := CreateMatrix[F](length)
-	OperateOnCellsWithIndex(&res, func(cell *F, i int, j int) {
+	res := CreateMat[F](length)
+	OpOnElemsWithIndex(&res, func(cell *F, i int, j int) {
 		res[i][j] = slice[(i+x)%length][(j+y)%length]
 	})
 	return res
 }
 
-func OperateOnEachCellWithCopy[F any](matrix [][]F, doOperation func(cell *F)) [][]F {
-	res := CopyMatrix(matrix)
-	OperateOnEachCell(&res, func(cell *F) {
-		doOperation(cell)
-	})
-	return res
+func PrintMat[F any](matrix [][]F) {
+	for i := range matrix {
+		for j := range matrix[i] {
+			fmt.Print("|", matrix[i][j], "\t")
+		}
+		fmt.Println("|")
+	}
 }
-func OperateOnEachCell[F any](matrix *[][]F, doOperation func(cell *F)) {
+
+func OperateOnElems[F any](matrix *[][]F, doOperation func(cell *F)) {
 	for _, fs := range *matrix {
 		for i := range fs {
 			doOperation(&fs[i])
@@ -47,7 +52,17 @@ func OperateOnEachCell[F any](matrix *[][]F, doOperation func(cell *F)) {
 	}
 }
 
-func OperateOnCellsWithIndex[F any](matrix *[][]F, doOperation func(cell *F, i int, j int)) {
+func OpOnElemsAndCopy[F any](matrix [][]F, doOperation func(cell *F)) [][]F {
+	res := CopyMat(matrix)
+	for i := range res {
+		for j := range res[i] {
+			doOperation(&res[i][j])
+		}
+	}
+	return res
+}
+
+func OpOnElemsWithIndex[F any](matrix *[][]F, doOperation func(cell *F, i int, j int)) {
 	for i, fs := range *matrix {
 		for j := range fs {
 			doOperation(&fs[j], i, j)
@@ -55,121 +70,121 @@ func OperateOnCellsWithIndex[F any](matrix *[][]F, doOperation func(cell *F, i i
 	}
 }
 
-func AddMatrixByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
-	res := CopyMatrix(matrix)
-	OperateOnCellsWithIndex[F](&res, func(cell *F, i int, j int) {
+func AddMatByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
+	res := CopyMat(matrix)
+	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
 		*cell += scalar
 	})
 	return res
 }
 
-func AddPMatrixByScalar[F AcceptedVals](matrix *[][]F, scalar F) {
-	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
+func AddPMatByScalar[F AcceptedVals](matrix *[][]F, scalar F) {
+	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell += scalar
 	})
 }
 
-func AddMatrices[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
-	res := CopyMatrix(matrix)
-	OperateOnCellsWithIndex[F](&res, func(cell *F, i int, j int) {
+func AddMat[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
+	res := CopyMat(matrix)
+	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
 		*cell += matrix2[i][j]
 	})
 	return res
 }
 
-func AddPMatrices[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
-	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
+func AddPMat[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
+	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell += matrix2[i][j]
 	})
 }
 
-func SubtractMatrixByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
-	res := CopyMatrix(matrix)
-	OperateOnCellsWithIndex[F](&res, func(cell *F, i int, j int) {
+func SubMatByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
+	res := CopyMat(matrix)
+	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
 		*cell -= scalar
 	})
 	return res
 }
 
-func SubtractPMatrixByScalar[F AcceptedVals](matrix *[][]F, scalar F) {
-	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
+func SubPMatByScalar[F AcceptedVals](matrix *[][]F, scalar F) {
+	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell -= scalar
 	})
 }
 
-func SubtractMatrices[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
-	res := CopyMatrix(matrix)
-	OperateOnCellsWithIndex[F](&res, func(cell *F, i int, j int) {
+func SubMat[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
+	res := CopyMat(matrix)
+	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
 		*cell -= matrix2[i][j]
 	})
 	return res
 }
 
-func SubtractPMatrices[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
-	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
+func SubPMat[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
+	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell -= matrix2[i][j]
 	})
 }
 
-func MultiplyMatrixByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
-	res := CopyMatrix(matrix)
-	OperateOnCellsWithIndex[F](&res, func(cell *F, i int, j int) {
+func MulMatByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
+	res := CopyMat(matrix)
+	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
 		*cell *= scalar
 	})
 	return res
 }
 
-func MultiplyPMatrixByScalar[F AcceptedVals](matrix *[][]F, scalar F) {
-	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
+func MulPMatByScalar[F AcceptedVals](matrix *[][]F, scalar F) {
+	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell *= scalar
 	})
 }
 
-func MultiplyMatrices[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
-	res := CopyMatrix(matrix)
-	OperateOnCellsWithIndex[F](&res, func(cell *F, i int, j int) {
+func MulMatElems[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
+	res := CopyMat(matrix)
+	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
 		*cell *= matrix2[i][j]
 	})
 	return res
 }
 
-func MultiplyPMatrices[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
-	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
+func MulPMatElems[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
+	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell *= matrix2[i][j]
 	})
 }
 
-func DivideMatrixByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
-	res := CopyMatrix(matrix)
-	OperateOnCellsWithIndex[F](&res, func(cell *F, i int, j int) {
+func DivMatElemsByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
+	res := CopyMat(matrix)
+	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
 		*cell /= scalar
 	})
 	return res
 }
 
-func DividePMatrixByScalar[F AcceptedVals](matrix *[][]F, scalar F) {
-	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
+func DivPMatElemsByScalar[F AcceptedVals](matrix *[][]F, scalar F) {
+	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell /= scalar
 	})
 }
 
-func DivideMatrices[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
-	res := CopyMatrix(matrix)
-	OperateOnCellsWithIndex[F](&res, func(cell *F, i int, j int) {
+func DivMat[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
+	res := CopyMat(matrix)
+	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
 		*cell /= matrix2[i][j]
 	})
 	return res
 }
 
-func DividePMatrices[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
-	OperateOnCellsWithIndex[F](matrix, func(cell *F, i int, j int) {
+func DivPMat[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
+	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell /= matrix2[i][j]
 	})
 }
 
-func SumMatrix[F AcceptedVals](matrix [][]F) F {
+func SumMat[F AcceptedVals](matrix [][]F) F {
 	var res F
-	OperateOnEachCell(&matrix, func(f *F) {
+	OperateOnElems(&matrix, func(f *F) {
 		res += *f
 	})
 	return res
