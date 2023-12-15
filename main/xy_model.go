@@ -35,15 +35,16 @@ func (m *Model) assign(value float64) error {
 	if value < -math.Pi*2 || math.Pi*2 < value {
 		err = errors.New("given value is out of bounds")
 	} else {
-		OperateOnElems[float64](&m.lattice, func(f *float64) {
+		OpOnElems[float64](&m.lattice, func(f *float64) {
 			*f = value
 		})
 	}
 	return err
 }
 func (m *Model) randomize() {
-	OperateOnElems[float64](&m.lattice, func(f *float64) {
-		*f = rand.Float64() * 2 * math.Pi
+	OpOnElems[float64](&m.lattice, func(f *float64) {
+		*f = rand.NormFloat64()
+		*f = math.Mod(*f, 2*math.Pi)
 	})
 }
 
@@ -51,7 +52,7 @@ func (m *Model) energy() float64 {
 
 	res := -m.coupling
 
-	res *= SumMat(AddMat(getMCos(SubMat(m.lattice, RollMat(m.lattice, 1, 1))), getMCos(SubMat(m.lattice, RollMat(m.lattice, 1, 0)))))
+	res *= SumMat(AddMat(getMCos(SubMat(m.lattice, RollMatrix(m.lattice, 1, 1))), getMCos(SubMat(m.lattice, RollMatrix(m.lattice, 1, 0)))))
 
 	res -= m.muB * m.magField * SumMat(getMCos(m.lattice))
 
@@ -61,13 +62,13 @@ func (m *Model) energy() float64 {
 func (m *Model) deltaEnergy(newAngles [][]float64) [][]float64 {
 	res := CreateMat[float64](m.size)
 
-	diff1 := SubMat(getMCos(SubMat(newAngles, RollMat(m.lattice, 1, 0))), SubMat(m.lattice, RollMat(m.lattice, 1, 0)))
+	diff1 := SubMat(getMCos(SubMat(newAngles, RollMatrix(m.lattice, 1, 0))), getMCos(SubMat(m.lattice, RollMatrix(m.lattice, 1, 0))))
 
-	diff2 := SubMat(getMCos(SubMat(newAngles, RollMat(m.lattice, 1, 1))), SubMat(m.lattice, RollMat(m.lattice, 1, 1)))
+	diff2 := SubMat(getMCos(SubMat(newAngles, RollMatrix(m.lattice, 1, 1))), getMCos(SubMat(m.lattice, RollMatrix(m.lattice, 1, 1))))
 
-	diff3 := SubMat(getMCos(SubMat(newAngles, RollMat(m.lattice, -1, 0))), SubMat(m.lattice, RollMat(m.lattice, -1, 0)))
+	diff3 := SubMat(getMCos(SubMat(newAngles, RollMatrix(m.lattice, -1, 0))), getMCos(SubMat(m.lattice, RollMatrix(m.lattice, -1, 0))))
 
-	diff4 := SubMat(getMCos(SubMat(newAngles, RollMat(m.lattice, -1, 1))), SubMat(m.lattice, RollMat(m.lattice, -1, 1)))
+	diff4 := SubMat(getMCos(SubMat(newAngles, RollMatrix(m.lattice, -1, 1))), getMCos(SubMat(m.lattice, RollMatrix(m.lattice, -1, 1))))
 
 	MulPMatByScalar(&diff1, -m.coupling)
 	MulPMatByScalar(&diff2, -m.coupling)
@@ -86,7 +87,7 @@ func (m *Model) deltaEnergy(newAngles [][]float64) [][]float64 {
 func (m *Model) magnetization() float64 {
 	var magX float64 = 0
 	var magY float64 = 0
-	OperateOnElems(&m.lattice, func(f *float64) {
+	OpOnElems(&m.lattice, func(f *float64) {
 		magX += math.Cos(*f)
 		magY += math.Sin(*f)
 	})
@@ -202,7 +203,7 @@ func plotData(plotName string, temps []float64, results []float64) {
 }
 
 func xyModel() {
-	nRealizations := 200
+	nRealizations := 500
 	nTherm := 2000
 	nMeasure := 2000
 	nDrop := 5
@@ -219,28 +220,14 @@ func xyModel() {
 	}
 	slices.Sort(tVals)
 	for i := 0; i < nRealizations; i++ {
-		wg.Add(0)
-		m := newParameterModel(10, 1, 0.67, tVals[i], 0)
-		m.randomize()
-		simulate(m, nTherm, 0.1, nMeasure, nDrop, &results[i], &wg)
-		//wg.Wait()
-
+		wg.Add(1)
+		m := newParameterModel(50, 1, 0.67, tVals[i], 0)
+		go simulate(m, nTherm, 0.1, nMeasure, nDrop, &results[i], &wg)
 	}
+
+	wg.Wait()
 
 	plotData("Heat Plot", tVals, extractColumn(results, 0))
 	plotData("Mag Plot", tVals, extractColumn(results, 1))
 	plotData("Mag Sus Plot", tVals, extractColumn(results, 2))
-}
-func test() {
-	a := CreateMat[int](3)
-	i := 0
-	OperateOnElems(&a, func(cell *int) {
-		i += 6
-		*cell = i
-	})
-	PrintMat(a)
-	MulPMatByScalar(&a, 2)
-
-	PrintMat(a)
-
 }

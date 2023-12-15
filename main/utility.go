@@ -25,14 +25,32 @@ func CopyMat[F any](m [][]F) [][]F {
 	return res
 }
 
-func RollMat[F any](slice [][]F, shiftX int, shiftY int) [][]F {
-	length := len(slice)
-	x, y := (shiftX%length)+length, (shiftY%length)+length
-	res := CreateMat[F](length)
-	OpOnElemsWithIndex(&res, func(cell *F, i int, j int) {
-		res[i][j] = slice[(i+x)%length][(j+y)%length]
-	})
-	return res
+func RollMatrix[F any](matrix [][]F, shift int, axis int) [][]F {
+	rows, cols := len(matrix), len(matrix[0])
+	result := make([][]F, rows)
+	for i := range result {
+		result[i] = make([]F, cols)
+	}
+
+	for i := 0; i < rows; i++ {
+		for j := 0; j < cols; j++ {
+			var newRow, newCol int
+			switch axis {
+			case 0:
+				newRow = (i + shift + rows) % rows
+				newCol = j
+			case 1:
+				newRow = i
+				newCol = (j + shift + cols) % cols
+			default:
+				newRow = i
+				newCol = j
+			}
+			result[newRow][newCol] = matrix[i][j]
+		}
+	}
+
+	return result
 }
 
 func PrintMat[F any](matrix [][]F) {
@@ -44,7 +62,7 @@ func PrintMat[F any](matrix [][]F) {
 	}
 }
 
-func OperateOnElems[F any](matrix *[][]F, doOperation func(cell *F)) {
+func OpOnElems[F any](matrix *[][]F, doOperation func(cell *F)) {
 	for _, fs := range *matrix {
 		for i := range fs {
 			doOperation(&fs[i])
@@ -156,6 +174,10 @@ func MulPMatElems[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
 
 func DivMatElemsByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
 	res := CopyMat(matrix)
+	if scalar == 0 {
+		panic("Division by zero error")
+	}
+
 	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
 		*cell /= scalar
 	})
@@ -163,28 +185,38 @@ func DivMatElemsByScalar[F AcceptedVals](matrix [][]F, scalar F) [][]F {
 }
 
 func DivPMatElemsByScalar[F AcceptedVals](matrix *[][]F, scalar F) {
+	if scalar == 0 {
+		panic("Division by zero error")
+	}
+
 	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
 		*cell /= scalar
 	})
 }
 
-func DivMat[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
+func DivMatElems[F AcceptedVals](matrix [][]F, matrix2 [][]F) [][]F {
 	res := CopyMat(matrix)
 	OpOnElemsWithIndex[F](&res, func(cell *F, i int, j int) {
+		if matrix2[i][j] == 0 {
+			panic("Division by zero error")
+		}
 		*cell /= matrix2[i][j]
 	})
 	return res
 }
 
-func DivPMat[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
+func DivPMatElems[F AcceptedVals](matrix *[][]F, matrix2 [][]F) {
 	OpOnElemsWithIndex[F](matrix, func(cell *F, i int, j int) {
+		if matrix2[i][j] == 0 {
+			panic("Division by zero error")
+		}
 		*cell /= matrix2[i][j]
 	})
 }
 
 func SumMat[F AcceptedVals](matrix [][]F) F {
 	var res F
-	OperateOnElems(&matrix, func(f *F) {
+	OpOnElems(&matrix, func(f *F) {
 		res += *f
 	})
 	return res
